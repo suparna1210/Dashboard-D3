@@ -7,7 +7,6 @@ The coursework template. d3.js version 4 code.
 
 **Important - Python http.server**
 
-You must run examples lab04 onwards with a local web server.
 
 e.g. in a Command window run:
 
