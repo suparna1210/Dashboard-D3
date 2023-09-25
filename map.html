@@ -1,0 +1,184 @@
+<!-------------------------------------------------------------------- 
+  
+   Module: Map of REF towns 
+  
+   Author: Mike Chantler
+  
+   What it does:
+  	Reads REF data + topojason stuf for UK map
+	Renders REF towns on UK map
+  
+ 
+   Version history
+  	v001	03/10/2018	mjc	Created.
+
+
+  
+----------------------------------------------------------------------> 
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Map of REF towns </title>
+	<script type="text/javascript" src="d3/d3.v4.js"></script>
+	<script src="lib/model/ref14model_v002.js"></script> 
+	<link rel="stylesheet" type="text/css" href="css/map-v001.css"/>
+	<script src="lib/views/map_v001.js"></script>
+	<script src="http://d3js.org/topojson.v1.min.js"></script>	
+</head>
+<body>
+	<h1>Map of REF towns </h1>
+	<p> Uses d3.v4.js</p>
+	<div ID=mapdiv></div>
+
+	<h2>dataModel.refEntries[0] as a reminder of the format</h2>
+	<div ID=refEntriesdiv></div>	
+
+<script type="text/javascript">
+"use strict"
+
+var dm1 = modelConstructor(); //Create datamodel object (gives access to methods in ref14model.js etc )
+var	map1 = map("#mapdiv");
+var dataModel; //shorthand for dm1.model() and declared as nasty outer block variable for easy access from console.
+var countries, towns;
+
+var townSet = new Object();
+
+//=============== READ DATA FILES ================================
+function dummy(obj) {
+		townSet.testVar = obj
+		console.log(townSet)
+}
+
+var townSet = {
+  value: '',
+  letMeKnow() {
+    console.log(`The variable has changed to ${this.testVar}`);
+	
+  },
+  get testVar() {
+    return this.value;
+  },
+  set testVar(value) {
+    this.value = value;
+    this.letMeKnow();
+  }
+}
+
+
+
+d3.queue()
+	.defer(d3.csv, "data/topics/REF2014T30TopicOrder.csv")
+	.defer(d3.csv, "data/290183_REF_Contextual_table_1314_0.csv")
+	.defer(d3.csv, "data/learning-providers-plus.csv")
+	.defer(d3.json, "data/topics/REF2014T30Python.json")
+	.defer(d3.json, "maps/uk.json")
+	.await(initialiseApp)
+
+
+//======================== MAIN FUNCTION =================================
+//Carries out all initialization and setup
+function initialiseApp(error, ref14data, ref14context , learningProviders, jsonTopicData, uk){
+	//Check data files have loaded
+	if ( error ) {console.log (" there are errror with loading the data: ", error); return;}
+
+	//Draw the basic map
+	countries = topojson.feature(uk, uk.objects.subunits).features;
+ 
+	map1
+		.loadAndRenderMap(countries)
+		.overrideTownLongLatAccessor(longLatAccessor)
+		.overrideTownNameAccessor(d=>firstCaps(d.key))
+		.overrideOnClick(returnNeighbors);
+	
+	//Create data model 
+	dm1.loadData(ref14data, ref14context , learningProviders, jsonTopicData);	
+	dataModel = dm1.model()
+	
+	//Group REF entries by town for CS and find scaledFTE per town
+	// var townGroups = d3.nest().key(a=>a["UoAString"]=="Computer Science and Informatics").key(e=>e.lp.TOWN).rollup(town => ({doc : town, sumFTE: d3.sum(town, uni => uni.context.scaledFTE)})).entries(dataModel.refEntries).filter(e => e.key == "true")[0].values;
+
+	var townGroups = d3.nest().key(a=>a["UoAString"]=="Computer Science and Informatics").key(e=>e.lp.TOWN).entries(dataModel.refEntries).filter(e => e.key == "true")[0].values
+
+	var allTownsCoord = d3.nest().key(e=>e.lp.TOWN).entries(dataModel.refEntries).map(a=> ({"townName": a.key, "lat": a.values[0].lp.LATITUDE, "long" : a.values[0].lp.LONGITUDE}));
+
+	//And load the towns into the map
+	map1.loadAndRenderTowns(townGroups);
+
+	// var mySet = map1.myMapObject;
+	
+	
+	//Print first UoA to browser screen	for reference
+	d3.select("#refEntriesdiv")
+		.html(
+			"<pre>" 
+			+ JSON.stringify(dataModel.refEntries[0], null, 2) 
+			+ "</pre>"
+		);		
+
+	//Print main dataModel object to Console
+	console.log("\nFor ease of inspection: dataModel = ", dataModel)
+
+	
+	/*================================= OTHER FUNCTIONS ===============================*/
+	function firstCaps(name) {return name[0] + name.slice(1).toLowerCase()};
+	
+	function longLatAccessor(d) {
+		//Will assume (eek!) that first REF entry in a town group 
+		//contains valid lat and long
+		var latitude = d.values[0].lp.LATITUDE;
+		var longitude = d.values[0].lp.LONGITUDE;
+		return [longitude, latitude]
+	}
+	
+	function returnHavesin(lat1,lon1,lat2,lon2){
+		const R = 6371e3; // metres
+		const φ1 = lat1 * Math.PI/180; // φ, λ in radians
+		const φ2 = lat2 * Math.PI/180;
+		const Δφ = (lat2-lat1) * Math.PI/180;
+		const Δλ = (lon2-lon1) * Math.PI/180;
+
+		const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+			Math.cos(φ1) * Math.cos(φ2) *
+			Math.sin(Δλ/2) * Math.sin(Δλ/2);
+		const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+		const d = R * c; // in metres
+		
+		return d;
+	}
+	
+	function returnNeighbors(d) {
+		//Will assume (eek!) that first REF entry in a town group 
+		//contains valid lat and long
+		var latitude = d.values[0].lp.LATITUDE;
+		var longitude = d.values[0].lp.LONGITUDE;
+
+		var neighborList = []
+		allTownsCoord.forEach(element => {
+			var dist = returnHavesin(latitude, longitude, element.lat, element.long)
+			// console.log(dist)
+			if( dist <=50000){
+				neighborList.push(element)
+			}
+
+		});
+
+		// console.log(neighborList)
+		return neighborList
+	}
+
+
+}		
+
+
+
+
+
+
+
+	
+</script>
+</body>
+</html>

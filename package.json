@@ -1,0 +1,21 @@
+{
+  "name": "coursework",
+  "version": "1.0.0",
+  "description": "_**F20DV/F21DV coursework template**_",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@gitlab-student.macs.hw.ac.uk:ak125/coursework.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "topojson": "^3.0.2"
+  }
+}

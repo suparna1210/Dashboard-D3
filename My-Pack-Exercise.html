@@ -1,0 +1,191 @@
+<!-------------------------------------------------------------------- 
+  
+   Module: REF barchart and tree example 
+  
+   Author: Mike Chantler
+  
+   What it does:
+	Renders a barchart and tree using REF 2014 data  
+ 
+   Version history
+  	v001	15/08/2018	mjc	Created.
+  	v003	15/08/2018	mjc	Leaf node highlighting made more explicit
+  
+---------------------------------------------------------------------->
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<title>ref14 data: simple pack to bar interaction</title>
+	<link rel="stylesheet" type="text/css" href="css/tree-v001.css" />
+	<link rel="stylesheet" type="text/css" href="css/barchart-v001.css" />
+	<script type="text/javascript" src="d3/d3.v4.js"></script>
+	<script src="lib/model/ref14model_v002.js"></script>
+	<script src="lib/views/barchartWithAxes_d3v4_v002.js"></script>
+	<script src="lib/views/packSingleNestFormat_v002.js"></script>
+</head>
+
+<body>
+
+	
+
+	<div id="treeDiv2"></div>
+
+	<h2>Pack layout</h2>
+	<!-- <div id="treeDiv"></div> -->
+
+	<div id="dropDownDIV">
+
+		<h3> UoA Environment 4* for selected university </h3>
+	</div>
+	<div ID=barchart1Div></div>
+
+	<h2> Warning </h2>
+	<p> Some of the REF 14 entries have been removed from refEntries[]. See the Console for a list. (These are the ones
+		that do not have full data in the other CSVs e.g. missing from Learning Providers). </p>
+	<p> Uses d3.v4.js </p>
+
+	<h2> Barchart data </h2>
+	<div ID=refEntriesdiv></div>
+
+	<script type="text/javascript">
+		"use strict"
+
+		var dm1 = modelConstructor(); //Create datamodel object (gives access to methods in ref14model.js etc )
+		var dataModel; //shorthand for dm1.model() and declared as nasty outer block variable for easy access from console.
+		var bc1; //Barchart 1
+		var tr1, tr2; //The hierarchical tree 
+		var CS;
+		//=============== READ DATA FILES ================================
+
+		d3.queue()
+			.defer(d3.csv, "data/topics/REF2014T30TopicOrder.csv")
+			.defer(d3.csv, "data/290183_REF_Contextual_table_1314_0.csv")
+			.defer(d3.csv, "data/learning-providers-plus.csv")
+			.defer(d3.json, "data/topics/REF2014T30Python.json")
+			.await(initialiseApp)
+
+		//======================== MAIN FUNCTION =================================
+		//Carries out all initialization and setup
+		function initialiseApp(error, ref14data, ref14context, learningProviders, jsonTopicData) {
+			//Check data files have loaded
+			if (error) { console.log(" there are errror with loading the data: ", error); return; }
+
+			//Create data model 
+			dm1.loadData(ref14data, ref14context, learningProviders, jsonTopicData);
+			dataModel = dm1.model()
+
+			//Layout and render flat data as tree
+			// var nest = d3.nest()
+			// 	.key(refEntry => refEntry.context.regionProvider)
+			// 	.sortKeys(d3.ascending) //sort a-z
+			// 	.key(refEntry => refEntry.lp.TOWN)
+			// 	.sortKeys(d3.ascending)
+			// 	.key(refEntry => refEntry["Institution name"])
+			// 	.sortKeys(d3.ascending)
+
+			// 	.rollup(values => values) //add rollup to compact leaves and store refEntry info
+			// 	.entries(dataModel.refEntries); //load data into nest
+
+			// var stardata = d3.nest()
+			// 	.entries(dataModel.refEntries);
+			// stardata = stardata.map(e => [e["Institution name"], e.environment])
+			// console.log(stardata);
+
+			CS = dataModel.refEntries.filter(a => a["UoAString"] == "Law");
+			var nest = d3.nest()
+				.key(a => a["Institution name"])
+				.entries(CS)
+				.map(a => ({
+					"key": a.key, "values": [
+						{ "key": "4*", "value": a.values[0].environment["4*"] },
+						{ "key": "3*", "value": a.values[0].environment["3*"] },
+						{ "key": "2*", "value": a.values[0].environment["2*"] },
+						{ "key": "1*", "value": a.values[0].environment["1*"] }]
+				}))
+			console.log(nest);
+			var nest2 = d3.nest().key(e => e["Main panel"]).key(d => d.UoAString).rollup(a => d3.sum(a, b => b.context.scaledFTE)).entries(dataModel.refEntries)
+
+			tr1 = tree("#treeDiv")
+				.appendClickFunction(treeClickFunction)
+				.loadAndRenderNestDataset(nest, "REF2014")
+
+			tr2 = tree("#treeDiv2").loadAndRenderNestDataset(nest.slice(10, 18), "REF2014")
+			//Create barchart
+			bc1 = barchart("#barchart1Div")
+				.overrideDataFieldFunction(e => Number(e.environment["4*"])) //Use the 4* assessment as the bar size
+				.overrideKeyFunction(e => e["UoAString with Multiple submission letter appended"])  //GUP key and y-axis category
+				.overrideTooltipFunction(e => { return e["Institution name"] + ", " + e.UoAString + ", 4* = " + e.environment["4*"]; })
+				.appendedMouseOverFunction(highligtTreeNodesOfUniversitiesWithThisUoA)
+				.appendedMouseOutFunction(removeHighlighting)
+				.maxValueOfDataField(100);
+
+			var institutionClassesToHighlight; //Remember what we have highlighted so that we can remove the highlighting
+
+			function highligtTreeNodesOfUniversitiesWithThisUoA(d) {
+				//Get UoA name of clicked bar
+				var clickedUoA = d.UoAString;
+				//Get list of REF entries with this UoA		
+				var refEntriesWithThisUoA = dataModel.refEntries
+					.filter(e => e.UoAString == clickedUoA);
+				//Extract list of cleaned university (institution) class names 
+				institutionClassesToHighlight = refEntriesWithThisUoA
+					.map(function (e) {
+						return ".nest-key--" + e["Institution name"].replace(/[\W]+/g, "_")
+					})
+
+				//Highlight those bars
+				institutionClassesToHighlight.forEach(function (institutionClass) {
+					d3.selectAll(institutionClass).classed("highlight", true)
+				})
+			}
+
+			function removeHighlighting(d) {
+				institutionClassesToHighlight.forEach(function (institutionClass) {
+					d3.selectAll(institutionClass).classed("highlight", false)
+				})
+			}
+
+		}
+
+
+		//==================== HELPER FUNCTIONS =========================================
+
+		function treeClickFunction(d) {
+			//If leaf node then user has clicked on a University
+			//so render that university's data in a barchart 
+			if (d.height == 0) {
+				console.log("tree click, d.height, d = ", d.data.key)
+				var uni = d.data.key;
+				renderUniversityDataAsBarchart(uni)
+			}
+		}
+
+		function renderUniversityDataAsBarchart(university) {
+			//Generate set of sorted REF entries for this university
+			var bc1Data = dataModel.refEntries
+				.filter(e => e["Institution name"] == university)
+				.sort((a, b) => d3.ascending(
+					a["UoAString with Multiple submission letter appended"],
+					b["UoAString with Multiple submission letter appended"]
+				))
+
+			//Render the barchart
+			bc1.loadAndRenderDataset(bc1Data)
+
+			//Print barchart data to browser screen	
+			d3.select("#refEntriesdiv")
+				.html("<pre>" + JSON.stringify(bc1Data, null, 2) + "</pre>");
+		}
+
+
+
+
+
+
+	</script>
+</body>
+
+</html>

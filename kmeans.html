@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+	<title>ref14 data: simple pack to bar interaction</title>
+	<script type="text/javascript" src="d3/d3.v4.js"></script>
+    <script type="text/javascript" src="http://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=Kk42I0HMCybARIc75hE8KFMX8_1ERBtNHJzoYUj1IsmuP_umMy2tAKus_5AC-C4xDcawGADPQKKtwy7NH4bnNt-IB0o4eV54vdAz-ae3gzvCZKxJJTtIh0UJ0qbFznYW3ssiGjUzmoyxtJfq1_IdQTHCVgNBMHXkJpB83UUdmTI" charset="UTF-8"></script>
+    <link rel="stylesheet" crossorigin="anonymous" href="http://gc.kis.v2.scr.kaspersky-labs.com/E3E8934C-235A-4B0E-825A-35A08381A191/abn/main.css?attr=aHR0cDovL2JsLm9ja3Mub3JnL2ZleWRlcm0vcmF3Lzc1YzE4YTkxNDNhYWM1MGEyNGUzOTI3NjJmMTBkNmE0L2E3MTJlOTM5ZTY1ZGM2ZjlhZjAzMjE0MzE1ZWNjYjQ0NDcwM2MzZDIv"/>
+	<script src="lib/model/ref14model_v002.js"></script> 
+    <style>
+        .pt {
+            stroke:black;
+        }
+
+        #stats {
+            font-family: sans-serif;
+            fill: #4d4d4d;
+        }
+
+    </style>
+<body>
+
+    <!--viz-->
+    <div id="chart"></div>
+
+    <script type="text/javascript">
+
+var dm1 = modelConstructor(); //Create datamodel object (gives access to methods in ref14model.js etc )
+var dataModel; //shorthand for dm1.model() and declared as nasty outer block variable for easy access from console.
+var bc1; //Barchart 1
+var tr1,tr2; //The hierarchical tree 
+
+//=============== READ DATA FILES ================================
+
+
+d3.queue()
+	.defer(d3.csv, "data/topics/REF2014T30TopicOrder.csv")
+	.defer(d3.csv, "data/290183_REF_Contextual_table_1314_0.csv")
+	.defer(d3.csv, "data/learning-providers-plus.csv")
+	.defer(d3.json, "data/topics/REF2014T30Python.json")
+	.await(initialiseApp)
+
+function initialiseApp(error, ref14data, ref14context , learningProviders, jsonTopicData){
+	//Check data files have loaded
+	if ( error ) {console . log (" there are errror with loading the data: ", error); return;}
+	//Create data model 
+	dm1.loadData(ref14data, ref14context , learningProviders, jsonTopicData);	
+	dataModel = dm1.model()
+	
+	var allTownsCoord = d3.nest().key(e=>e.lp.TOWN).entries(dataModel.refEntries).map(a=> ({"townName": a.key, "lat": a.values[0].lp.LATITUDE, "long" : a.values[0].lp.LONGITUDE}));
+
+        // dims
+        var margin = { top: 20, right: 0, bottom: 50, left: 120 },
+            svg_dx = 1000, 
+            svg_dy = 700,
+            plot_dx = svg_dx - margin.right - margin.left,
+            plot_dy = svg_dy - margin.top - margin.bottom;
+
+        // scales
+        var x = d3.scaleLinear().range([margin.left, plot_dx]),
+            y = d3.scaleLinear().range([plot_dy, margin.top]);
+
+        var svg = d3.select("#chart")
+                    .append("svg")
+                    .attr("width", svg_dx)
+                    .attr("height", svg_dy);
+
+        var hulls = svg.append("g")
+                       .attr("id", "hulls");
+
+        var circles = svg.append("g")
+                         .attr("id", "circles");
+
+        // synthetic data with 15 known Gaussian clusters
+        // ref: S2 dataset from  http://cs.joensuu.fi/sipu/datasets/
+        var clusters = d3.range(0, 12).map((n) => n.toString());
+
+        // costs for each iteration
+        var costs = [];
+
+        hulls.selectAll("path")
+             .data(clusters)
+             .enter()
+             .append("path")
+             .attr("class", "hull")
+             .attr("id", d => "hull_" + d);
+
+        // data is 10% sample of original dataset 
+        // d3.csv("s2_sample.csv", d => { 
+            
+            allTownsCoord.forEach(d => {
+                d.x = +d.lat;
+                d.y = +d.long;
+            });
+
+            setScaleDomains(allTownsCoord);
+            plotCircles(allTownsCoord);
+
+            // randomly select 15 data points for initial centroids
+            var initialCentroids = clusters.map(() => allTownsCoord[Math.round(d3.randomUniform(0, allTownsCoord.length)())]);
+
+            assignCluster(initialCentroids);
+            addHull();
+
+            costs.push(computeCost());
+
+            var iterate = d3.interval(() => {
+
+                var c = computeCentroids()
+
+                assignCluster(c)
+                addHull();
+
+                var cost = computeCost();
+
+                // stop iterating when algorithm coverges to local minimum
+                if (cost == costs[costs.length - 1]) {
+
+                    displayStats(costs);
+                    iterate.stop();
+                }
+
+                costs.push(cost)
+
+            }, 500);
+
+        // });
+
+        function displayStats(costs) {
+
+            var stats = svg.append("g")
+                           .attr("id", "stats");
+
+            var formatMin = d3.format(".4");
+
+            var n_iters = stats.append("text")
+                               .attr("x", 10)
+                               .attr("y", 20);
+
+            n_iters.append("tspan")
+                   .style("font-weight", "bold")
+                   .text("Num. Iterations: ");
+
+            n_iters.append("tspan")
+                   .text(costs.length);
+
+            var cost = stats.append("text")
+                            .attr("x", 10)
+                            .attr("y", 40);
+
+            cost.append("tspan")
+                .style("font-weight", "bold")
+                .text("Local Minimum: ");
+
+            cost.append("tspan")
+                .text(formatMin(costs[costs.length - 1]));
+               
+        }
+
+        function computeCentroids() {
+            
+            var centroids = clusters.map(cluster => {
+
+                var d = d3.selectAll(".cluster_" + cluster)
+                          .data(),
+                    n = d.length;
+
+                var x_sum = d3.sum(d, d => d.x),
+                    y_sum = d3.sum(d, d => d.y);
+
+                return { x:(x_sum / n), y:(y_sum / n) };
+
+            });
+
+            return centroids;
+        }
+
+        function addHull() {
+
+            clusters.forEach(cluster => {
+
+                // parse cluster data
+                var d_cluster = d3.selectAll(".cluster_" + cluster)
+                                  .data()
+                                  .map((datum) => [x(datum.x), y(datum.y)]);
+
+                // path given data points for cluster
+                var d_path = d3.polygonHull(d_cluster);
+
+                var color = d3.schemeCategory20[+cluster];
+
+                // ref: https://bl.ocks.org/mbostock/4341699
+                d3.select("#hull_" + cluster)
+                  .attr("id", "hull_" + cluster)
+                  .transition()
+                  .duration(250)
+                  .attr("d", d_path === null ? null : "M" + d_path.join("L") + "Z")
+                  .attr("fill", color)
+                  .style("stroke", color);
+            });
+
+        }
+
+        function computeCost() {
+
+            var dists = d3.selectAll("circle")
+                          .data()
+                          .map(d => d._dist);
+
+            return d3.sum(dists);
+        }
+
+        function assignCluster(centroids) {
+            
+            d3.selectAll("circle")
+              .each(function(d) {
+
+                // distances of data point from all centroids
+                var dists = computeDistances(centroids, d);
+
+                // min. distance defines cluster number 
+                var dist_min = d3.min(dists);
+                var cluster_num = dists.findIndex(dist => dist == dist_min);
+
+                var color = d3.schemeCategory20[cluster_num];
+
+                // stash min. distance to compute cost
+                d._dist = dist_min;
+
+                // assign data point to cluster of minimum distance
+                d3.select(this)
+                  .attr("fill", d3.color(color).brighter(0.5))
+                  .attr("class", "pt cluster_" + cluster_num);
+            });
+        }
+
+        function computeDistances(centroids, d_pt) {
+
+            var dists = centroids.map(centroid => {
+                var dist = Math.sqrt(Math.pow(d_pt.x - centroid.x, 2) + Math.pow(d_pt.y - centroid.y, 2));
+                return dist;
+            })
+            return dists;
+        }
+
+        function setScaleDomains(d) {
+
+             x.domain(d3.extent(d, d => d.x));
+             y.domain(d3.extent(d, d => d.y));
+        }
+
+        function plotCircles(d) {
+
+            circles.selectAll("circle")
+                   .data(d)
+                   .enter()
+                   .append("circle")
+                   .attr("class", "pt")
+                   .attr("r", 5)
+                   .attr("cx", (d) => x(d.x))
+                   .attr("cy", (d) => y(d.y));
+        }
+
+}
+
+    </script>
+
+</body>

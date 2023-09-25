@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<head>
+  <script src="https://d3js.org/d3.v4.min.js"></script>
+  <script type="text/javascript" src="d3/d3.v4.js"></script>
+  <script src="lib/model/ref14model_v002.js"></script>
+  <script src="Sunburst.js" defer></script>
+  <script src="lib/views/barchartWithAxes_d3v4_v002.js"></script>
+  <link rel="stylesheet" type="text/css" href="css/general.css"/>
+  <link rel="stylesheet" type="text/css" href="css/barchart-v001.css"/>
+</head>
+<style>
+path {
+  stroke: #fff;
+}
+</style>
+<body>
+
+<script>
+
+  var dm1 = modelConstructor()
+  			.addBasicTopicArrayData(false); //Create datamodel object (gives access to methods in ref14model.js etc )
+  var dataModel; //shorthand for dm1.model() and declared as nasty outer block variable for easy access from console.
+  var bc1; //Barchart 1
+
+  //=============== READ DATA FILES ================================
+  d3.queue()
+  	.defer(d3.csv, "data/topics/REF2014T30TopicOrder.csv")
+  	.defer(d3.csv, "data/290183_REF_Contextual_table_1314_0.csv")
+  	.defer(d3.csv, "data/learning-providers-plus.csv")
+  	.defer(d3.json, "data/topics/REF2014T30Python.json")
+    .defer(d3.csv, "data/Towns_List__1_.csv")
+  .await(initialiseApp)
+
+//======================== MAIN FUNCTION =================================
+//Carries out all initialization and setup
+let uni_data;
+function initialiseApp(error, ref14data, ref14context , learningProviders, jsonTopicData, townsList){
+
+	//Check data files have loaded
+	if ( error ) {console.log (" there are errror with loading the data: ", error); return;}
+
+	//Create model
+	dm1.loadData(ref14data, ref14context , learningProviders, jsonTopicData, townsList);
+	dataModel = dm1.model()
+
+	//Organise (nest) alphabetically by Uni then Uoa
+	let uni_data = d3.nest()
+    .key(e=>e)
+    .key(e=> e.context.regionProvider)
+    .key(e=>e.lp.TOWN)
+    .key(e=> e['Institution name'])
+    .rollup(values=> d3.sum(values, e=> e.context.scaledFTE))
+    .entries(dataModel.refEntries)
+
+  console.log('data_new', uni_data);
+
+  Sunburst(uni_data);
+
+
+};
+</script>

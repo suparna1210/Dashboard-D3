@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Agglomerative Clustering</title>
+	<script type="text/javascript" src="d3/d3.v4.js"></script>
+    <script src="https://d3js.org/d3-color.v2.min.js"></script>
+	<script src="lib/model/ref14model_v002.js"></script> 
+    <link rel="stylesheet" type="text/css" href="css/tree-v001.css"/>
+	<script src="lib/views/packSingleNestFormat_v001.js"></script> 
+    <title>Document</title>
+</head>
+<body>
+
+    <h1>Pack Example (with d3.nest format data) </h1>
+	<p>Uses packSingleNestFormat_v001.js</p>
+	
+	<h3>Pack layout</h3>
+	<div id="treeDiv"></div>
+
+	<h3>d3.nest() format data</h3>
+	<pre id="hierarchyDiv"></pre>	
+	
+	<h3>Flat data</h3>
+	<pre id="flatDataDiv"></pre>
+
+
+
+    <script>
+
+var dm1 = modelConstructor(); //Create datamodel object (gives access to methods in ref14model.js etc )
+var dataModel;
+
+d3.queue()
+	.defer(d3.csv, "data/topics/REF2014T30TopicOrder.csv")
+	.defer(d3.csv, "data/290183_REF_Contextual_table_1314_0.csv")
+	.defer(d3.csv, "data/learning-providers-plus.csv")
+	.defer(d3.json, "data/topics/REF2014T30Python.json")
+	.await(initialiseApp)
+
+    d3.json("./Agglomerative_Data.json", function(error, data) {
+    
+    if (error) return console.error(error);
+
+    aglo_data=data.map(d=>d);
+
+    aglo_data.forEach(element => {
+
+    if(element.children){
+        
+        // console.log(element.children)
+        children = element.children;
+        children.forEach(childIndex => {
+
+            try{
+            if(aglo_data.find(obj => obj.nodeIndex == childIndex)){
+                aglo_data.find(obj => obj.nodeIndex == childIndex)["Parent"] = element.nodeIndex
+            }
+            else{
+                node_name = "node_"+childIndex;
+                // console.log(node_name, "HEHHE ", aglo_data.find(obj => obj.nodeIndex == node_name))
+                aglo_data.find(obj => obj.nodeIndex == node_name)["Parent"] = element.nodeIndex
+            }
+        } 
+         catch(err) {
+            
+           console.log("no")
+         }
+        });
+    }
+       
+   });
+
+   var root = d3.stratify()
+    .id(function(d) { return d.nodeIndex; })
+    .parentId(function(d) { return d.Parent; })
+    (aglo_data);
+
+   console.log("EY ROOT", root);
+
+//Layout and render as tree
+var tr1 = tree("#treeDiv");
+tr1
+	.nodeLabelIfNoKey(d => "NODE : " + d.data.nodeIndex)
+	.loadAndRenderNestDataset(root, "NODE_58" );
+	
+// //Print out nested array	
+// d3
+// 	.select("#hierarchyDiv")
+// 	.html(JSON.stringify(root, null, 2)); 
+
+// //Print out flat array	
+// d3
+// 	.select("#flatDataDiv")
+// 	.html(JSON.stringify(root, null, 2)); 
+
+
+
+
+
+});
+
+
+
+
+    </script>
+    
+</body>
+</html>
